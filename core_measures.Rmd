@@ -74,6 +74,7 @@ library(readxl)    # for reading xlsx files
 library(lubridate) # for handling dates
 library(broom)     # for tidying pcomp output
 library(plotly)    # for interactive plots
+library(glue)      # for pasting strings and data
 ```
 
 
@@ -247,6 +248,14 @@ cores <- cores %>%
 head(cores)
 ```
 
+Save `cores` data to a `csv` file
+```{r}
+today <- today()
+path  <- glue("output/stat_core_data_{today}.csv")
+
+write_csv(cores, path = path)
+```
+
 
 ## Plot
 
@@ -293,3 +302,8 @@ Plot the average core inflation rate and the maximal and minimal values for each
 The figure above shows the average of our three core inflation measures (in black). The blue area denotes the range between the maximum and minimum values that the individual indices obtain each month, and constitutes an estimate of the uncertainty in measuring core inflation. 
 
 The Figure shows that core inflation has generally been in an upward trend since the end of 2015. In September 2019, core inflation totaled 0.8 percent, well above actual inflation, and the range of individual estimates ranged between 1.4 percent (inflation of CPI-trim and vegetables) and 0.4 percent (CPI-median).
+
+
+## References
+
+Bank of Canada (2017). Consumer Price Index: The Bank of Canada's Preferred Measures of Core Inflation Methodology Document.
