@@ -1,0 +1,295 @@
+---
+title: 'Statistical Measures of Core Inflation for Israel'
+author: "Itamar Caspi"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: show
+    highlight: haddock
+    keep_md: no
+    theme: journal
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+abstract: |
+---
+
+```{css, echo = FALSE}
+blockquote {
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 14px;
+    border-left: 5px solid #eee;
+}
+```
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(eval = TRUE,
+                      echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+
+```
+
+
+## Introduction
+
+Even though core inflation is based on a relatively simple idea, there is no agreement regarding how it is to be calculated. The most common approach excludes the energy and food components from inflation. Alongside that, there are approaches of a more statistical nature, which exclude components that have exceptional price changes, or seek the common component that drives price changes in the components of the CPI.
+
+In Israel, there is no commonly accepted definition of core inflation, and the Bank of Israel does not explicitly relate to it in its announcements (although it does relate to several partial indices). Since there is no single accepted method for measuring core inflation, we will use the simple average of a number of indices, hoping that while each of them provides a noisy estimate on its own, averaging them all together would provide a better overall estimate.
+
+Following the Bank of Canada, we calculate the following measures of core inflation: (1) inflation with a monthly adjustment for components that have sharp price changes (“CPI-trim”); (2) inflation based on median price changes of the index’s components (“CPI-median”); and (3) inflation based on a common component estimated through a principal component analysis.
+
+## Definitions
+
+The following definitions are taken from the Bank of Canada ([source](https://www.bankofcanada.ca/rates/indicators/key-variables/key-inflation-indicators-and-the-target-range/)): 
+
+**Core inflation:**
+
+>_"The prices of certain CPI components can be particularly volatile. These components, as well as changes in indirect taxes such as GST, can cause sizeable fluctuations in total CPI.  In setting monetary policy, the Bank seeks to look through such transitory movements in total CPI inflation and focusses on “core” inflation measures that better reflect the underlying trend of inflation."_
+
+**CPI-trim:**  
+
+>_"CPI-trim is a measure of core inflation that excludes CPI components whose rates of change in a given month are located in the tails of the distribution of price changes. This measure helps filter out extreme price movements that might be caused by factors specific to certain components. In particular, CPI-trim excludes 20 per cent of the weighted monthly price variations at both the bottom and top of the distribution of price changes, and thus it always removes 40 per cent of the total CPI basket. These excluded components can change from month to month, depending on which are extreme at a given time. A good example would be the impact of severe weather on the prices of certain food components. This approach differs from traditional a priori exclusion-based measures (e.g. CPIX), which every month omit a pre-specified list of components from the CPI basket."_
+
+**CPI-median:**
+
+>_"CPI-median is a measure of core inflation corresponding to the price change located at the 50th percentile (in terms of the CPI basket weights) of the distribution of price changes in a given month. This measure helps filter out extreme price movements specific to certain components. This approach is similar to CPI-trim as it eliminates all the weighted monthly price variations at both the bottom and top of the distribution of price changes in any given month, except the price change for the component that is the midpoint of that distribution."_
+
+**CPI-common:**
+
+>_"CPI-common is a measure of core inflation that tracks common price changes across categories in the CPI basket. It uses a statistical procedure called a factor model to detect these common variations, which helps filter out price movements that might be caused by factors specific to certain components."_
+ 
+
+
+## Load Packages
+
+
+Load required packages:
+
+```{r packages}
+library(tidyverse) # for data wrangling and plotting
+library(readxl)    # for reading xlsx files
+library(lubridate) # for handling dates
+library(broom)     # for tidying pcomp output
+library(plotly)    # for interactive plots
+```
+
+
+## Read and format data
+
+First, we load the forecasts dataset
+
+```{r read}
+
+raw_data <- read_excel("data/core_data_nov2019.xlsx", sheet = "cpi") %>% 
+  slice(-2) # remove an empty row
+
+```
+
+Generate a `date` column
+```{r}
+data <- raw_data %>% 
+  separate(DATE, into = c("year", "month"), sep = "M") %>% 
+  mutate(date = make_date(year = year, month = month)) %>% 
+  filter(date >= ymd("2003-01-01"))
+```
+
+Transfomr `data` to a "long" format
+```{r}
+index <- data %>% 
+  select(date, starts_with("CP")) %>%
+  pivot_longer(-date, names_to = "component", values_to = "index") %>% 
+  mutate(component = str_remove(component, "CP")) %>% 
+  group_by(component) %>% 
+  mutate(
+    pc  = (index - lag(index))/lag(index),
+    pca = (index - lag(index, 12))/lag(index, 12)  
+  ) %>% 
+  ungroup() %>% 
+  drop_na()
+
+weight <- data %>% 
+  select(date, starts_with("MP")) %>% 
+  pivot_longer(-date, names_to = "component", values_to = "weight") %>% 
+  mutate(component = str_remove(component, "MP"))
+
+data_long <- left_join(index, weight) %>% 
+  arrange(component)
+
+head(data_long)
+```
+
+
+## Trimmed mean and median
+
+
+```{r}
+mult <- 10000
+
+vectors <- data_long %>% 
+  mutate(weight = as.integer(mult * weight)) %>%
+  mutate(vector = map2(pc, weight, ~ rep(.x, .y))) %>% 
+  select(date, vector)
+
+head(vectors)
+```
+
+Trimmed mean core inflation
+```{r}
+down_trim <- 0.25 * mult
+up_trim   <- 0.75 * mult
+
+core_trim <- vectors %>% 
+  nest(data = -date) %>% 
+  mutate(trim   = map_dbl(data, ~ mean(unlist(.)[down_trim:up_trim]))) %>% 
+  select(-data)
+```
+
+Median core inflation
+```{r}
+q <- 0.5
+
+core_median <- vectors %>% 
+  nest(data = -date) %>% 
+    mutate(median = map_dbl(data, ~ quantile(unlist(.), probs = q))) %>% 
+  select(-data)
+```
+
+
+## Common factor
+
+Transform cpi data back to a "wide" format
+```{r}
+index_wide <- index %>% 
+  select(date, component, pca) %>% 
+  pivot_wider(names_from = component, values_from = pca)
+```
+
+
+Extract the first principal component
+```{r}
+cpi_pcomp <- index_wide %>% 
+  select(-date) %>% 
+  prcomp(center = TRUE, scale = TRUE) %>% 
+  tidy() %>% 
+  filter(PC == 1) %>% 
+  select(value) %>% 
+  rename(pcomp = value)
+```
+
+Transform `pcomp` data to a "long" format
+```{r}
+index_pcomp <- index_wide %>% 
+  bind_cols(cpi_pcomp) %>% 
+  pivot_longer(
+    -c("date", "pcomp"),
+    names_to = "component",
+    values_to = "value"
+  ) %>% 
+  arrange(component)
+```
+
+Scale back `PC1` to inflation units of scale via the following regression
+
+$$\hat{\pi}_{it} = \hat{\alpha} + \hat{\beta} \times pc_1$$
+for each component $i$, seperately.
+
+```{r}
+common_long <- index_pcomp %>% 
+  nest(data = c(date, pcomp, value)) %>% 
+  mutate(
+    lm   = map(data, ~ lm(value ~ pcomp, data = .)), # fit regression
+    aug  = map(lm, ~ augment(.)),                    # get fitted values
+    aug_date = map2(aug, data, ~ bind_cols(.x, .y))  # add dates
+  ) %>% 
+  unnest(aug_date) %>% 
+  select(date, component, .fitted)
+```
+
+
+Re-weight values to generate the common factor core infaltion
+```{r}
+core_common <- weight %>%
+  left_join(common_long) %>% 
+  drop_na() %>% 
+  mutate(wfitted = weight * .fitted) %>% 
+  group_by(date) %>% 
+  summarise(common_index_pcy = sum(wfitted))
+```
+
+## All cores
+
+Join trim and mean to a single tibble
+```{r}
+cores <- core_median %>% 
+  left_join(core_trim) %>% 
+  mutate_at(vars(-date),
+            .funs = list(index = ~ cumprod(1 + .))) %>% 
+  mutate_at(vars(ends_with("index")),
+            .funs = list(pcy = ~ (. - lag(., 12))/lag(., 12))) %>% 
+  select(date, ends_with("pcy")) %>% 
+  drop_na()
+```
+
+Join trim and mean to a single tibble
+```{r}
+cores <- cores %>% 
+  left_join(core_common) %>% 
+  rename(
+    "CPI-common" = common_index_pcy,
+    "CPI-median" = median_index_pcy,
+    "CPI-trim"   = trim_index_pcy
+  ) %>% 
+  mutate_at(vars(starts_with("CPI")), .funs = list(~ . * 100))
+
+head(cores)
+```
+
+
+## Plot
+
+Plot CPI-median, CPI-trim, and CPI common
+```{r}
+
+(cores %>%
+  filter(date >= ymd("2010-01-01")) %>% 
+  pivot_longer(-date, names_to = "name", values_to = "value") %>% 
+  ggplot(aes(x = date, y = value, color = name)) +
+  geom_line() +
+  labs(
+    y = "Percent",
+    x = "Date",
+    color = ""
+  ) +
+  theme(legend.position = "top")) %>% ggplotly()
+```
+
+
+Plot the average core inflation rate and the maximal and minimal values for each month
+```{r}
+
+(cores %>% 
+  rowwise() %>% 
+  mutate(
+    mean_core = mean(c(`CPI-median`, `CPI-trim`, `CPI-common`)),
+    max_core  = max(`CPI-median`, `CPI-trim`, `CPI-common`),
+    min_core  = min(`CPI-median`, `CPI-trim`, `CPI-common`)
+  ) %>% 
+  ggplot(aes(x = date, y = mean_core)) +
+  geom_ribbon(aes(ymin = min_core, ymax = max_core), fill = "blue", alpha = 0.3) +
+  geom_line() +
+  labs(
+    y = "Percent",
+    x = "Date"
+  )) %>% ggplotly()
+
+  
+
+```
+
+
+The figure above shows the average of our three core inflation measures (in black). The blue area denotes the range between the maximum and minimum values that the individual indices obtain each month, and constitutes an estimate of the uncertainty in measuring core inflation. 
+
+The Figure shows that core inflation has generally been in an upward trend since the end of 2015. In September 2019, core inflation totaled 0.8 percent, well above actual inflation, and the range of individual estimates ranged between 1.4 percent (inflation of CPI-trim and vegetables) and 0.4 percent (CPI-median).
