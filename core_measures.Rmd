@@ -35,11 +35,11 @@ knitr::opts_chunk$set(eval = TRUE,
 
 ## Introduction
 
-Even though core inflation is based on a relatively simple idea, there is no agreement regarding how it is to be calculated. The most common approach excludes the energy and food components from inflation. Alongside that, there are approaches of a more statistical nature, which exclude components that have exceptional price changes, or seek the common component that drives price changes in the components of the CPI.
+Even though core inflation is based on a relatively simple idea, there is no agreement regarding how it is to be calculated (Johnson, 1999). The most common approach excludes the energy and food components from inflation. Alongside that, there are approaches of a more statistical nature, which exclude components that have exceptional price changes, or seek the common component that drives price changes in the components of the CPI.
 
-In Israel, there is no commonly accepted definition of core inflation, and the Bank of Israel does not explicitly relate to it in its announcements (although it does relate to several partial indices). Since there is no single accepted method for measuring core inflation, we will use the simple average of a number of indices, hoping that while each of them provides a noisy estimate on its own, averaging them all together would provide a better overall estimate.
+In Israel, there is no commonly accepted definition of core inflation, and the Bank of Israel does not explicitly relate to it in its announcements (Ribon, 2009). Since there is no single accepted method for measuring core inflation, we will use the simple average of a number of indices, hoping that while each of them provides a noisy estimate on its own, averaging them all together would provide a better overall estimate.
 
-Following the Bank of Canada, we calculate the following measures of core inflation: (1) inflation with a monthly adjustment for components that have sharp price changes (“CPI-trim”); (2) inflation based on median price changes of the index’s components (“CPI-median”); and (3) inflation based on a common component estimated through a principal component analysis.
+Following Bank of Canada (2017), we calculate the following measures of core inflation: (1) inflation with a monthly adjustment for components that have sharp price changes (“CPI-trim”); (2) inflation based on median price changes of the index’s components (“CPI-median”); and (3) inflation based on a common component estimated through a principal component analysis.
 
 ## Definitions
 
@@ -307,3 +307,7 @@ The Figure shows that core inflation has generally been in an upward trend since
 ## References
 
 Bank of Canada (2017). Consumer Price Index: The Bank of Canada's Preferred Measures of Core Inflation Methodology Document.
+
+Johnson, M. (1999). Core inflation: A measure of inflation for policy purposes. Measures of underlying inflation and their role in the conduct of monetary policy, 86-134.
+
+Ribon, S. (2009). Core Inflation Indices for Israel (No. 2009.08). Bank of Israel.
