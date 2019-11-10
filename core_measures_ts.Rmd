@@ -75,6 +75,7 @@ library(lubridate) # for handling dates
 library(broom)     # for tidying pcomp output
 library(plotly)    # for interactive plots
 library(glue)      # for pasting strings and data
+library(tsbox)
 ```
 
 
@@ -83,43 +84,37 @@ library(glue)      # for pasting strings and data
 First, we load the forecasts dataset
 
 ```{r read}
-
-raw_data <- read_excel("data/core_data_nov2019.xlsx", sheet = "cpi") %>% 
-  slice(-1) # remove an empty row
-
+raw_data <- read_excel("data/core_data_nov2019.xlsx", sheet = "cpi")
 ```
 
-Generate a `date` column
-```{r}
+Generate a `date` column and set the starting date of the sample
+```{r read}
 data <- raw_data %>% 
+  slice(-1) %>%  # remove an empty row
   separate(DATE, into = c("year", "month"), sep = "M") %>% 
-  mutate(date = make_date(year = year, month = month)) %>% 
+  mutate(date = make_date(year, month)) %>% 
   filter(date >= ymd("2003-01-01"))
+  
 ```
 
-Transfomr `data` to a "long" format
 ```{r}
-index <- data %>% 
-  select(date, starts_with("CP")) %>%
-  pivot_longer(-date, names_to = "component", values_to = "index") %>% 
-  mutate(component = str_remove(component, "CP")) %>% 
-  group_by(component) %>% 
-  mutate(
-    pc  = (index - lag(index))/lag(index),
-    pca = (index - lag(index, 12))/lag(index, 12)  
-  ) %>% 
-  ungroup() %>% 
-  drop_na()
 
-weight <- data %>% 
+index_long <- data %>%
+  select(date, starts_with("CP")) %>% 
+  ts_tbl() %>% 
+  ts_long() %>% 
+  ts_pc() %>% 
+  rename(pc = value) %>% 
+  mutate(id = str_remove(id, "C"))
+  
+weight_long <- data %>% 
   select(date, starts_with("MP")) %>% 
-  pivot_longer(-date, names_to = "component", values_to = "weight") %>% 
-  mutate(component = str_remove(component, "MP"))
+  ts_tbl() %>% 
+  ts_long() %>% 
+  rename(weight = value) %>% 
+  mutate(id = str_remove(id, "M"))
 
-data_long <- left_join(index, weight) %>% 
-  arrange(component)
-
-head(data_long)
+index_and_weight <- left_join(index_long, weight_long)
 ```
 
 
@@ -129,7 +124,7 @@ head(data_long)
 ```{r}
 mult <- 10000
 
-vectors <- data_long %>% 
+vectors <- index_and_weight %>% 
   mutate(weight = as.integer(mult * weight)) %>%
   mutate(vector = map2(pc, weight, ~ rep(.x, .y))) %>% 
   select(date, vector)
@@ -154,7 +149,9 @@ q <- 0.5
 
 core_median <- vectors %>% 
   nest(data = -date) %>% 
-    mutate(median = map_dbl(data, ~ quantile(unlist(.), probs = q))) %>% 
+    mutate(
+      median = map_dbl(data, ~ quantile(unlist(.), probs = q, na.rm = TRUE))
+    ) %>% 
   select(-data)
 ```
 
@@ -163,27 +160,36 @@ core_median <- vectors %>%
 
 Transform cpi data back to a "wide" format
 ```{r}
-index_wide <- index %>% 
-  select(date, component, pca) %>% 
-  pivot_wider(names_from = component, values_from = pca)
+
+index_wide <- data %>%
+  select(date, starts_with("CP")) %>% 
+  ts_tbl() %>% 
+  ts_long() %>% 
+  ts_pcy() %>%
+  ts_wide() %>% 
+  drop_na()
+
+date_wide <- index_wide %>% 
+  select(date)
 ```
 
 
 Extract the first principal component
 ```{r}
-cpi_pcomp <- index_wide %>% 
+pc1 <- index_wide %>%
   select(-date) %>% 
   prcomp(center = TRUE, scale = TRUE) %>% 
   tidy() %>% 
   filter(PC == 1) %>% 
   select(value) %>% 
-  rename(pcomp = value)
+  rename(pcomp = value) %>% 
+  bind_cols(date_wide)
 ```
 
 Transform `pcomp` data to a "long" format
 ```{r}
-index_pcomp <- index_wide %>% 
-  bind_cols(cpi_pcomp) %>% 
+pc1_long <- index_wide %>% 
+  left_join(cpi_pcomp) %>% 
   pivot_longer(
     -c("date", "pcomp"),
     names_to = "component",
@@ -201,9 +207,9 @@ for each component $i$, seperately.
 common_long <- index_pcomp %>% 
   nest(data = c(date, pcomp, value)) %>% 
   mutate(
-    lm   = map(data, ~ lm(value ~ pcomp, data = .)), # fit regression
-    aug  = map(lm, ~ augment(.)),                    # get fitted values
-    aug_date = map2(aug, data, ~ bind_cols(.x, .y))  # add dates
+    reg      = map(data, ~ lm(value ~ pcomp, data = .)), # fit regression
+    fit      = map(lm, ~ augment(.)),                    # get fitted values
+    fit_data = map2(aug, data, ~ bind_cols(.x, .y))      # add dates
   ) %>% 
   unnest(aug_date) %>% 
   select(date, component, .fitted)
